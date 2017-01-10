@@ -167,245 +167,284 @@ class StatsGrid implements HtmlElementInterface {
 	 * The Html is echoed directly into the output.
 	 *
 	 */
-	public function toHtml() {
-		
-		$dataset = $this->data;
-		
-		$statsRows = new StatsColumn();
-		$statsRows->fill($this->data, $this->rows);
+	protected function processData()
+    {
 
-		$statsColumns = new StatsColumn();
-		$statsColumns->fill($this->data, $this->columns);
-		
-		/*var_dump($statsRows);
-		var_dump($statsColumns);*/
+        $dataset = $this->data;
 
-		// Xrow: StatsColumn, Yrow: StatsColumn, Value: AggregatedValue
-		$aggregatedData = new BiDimensionalObjectStorage();
-		// We must create an instance of AggregatedValue for each row/column needed
-		// Then we must fill this with data from the dataset.
-		foreach ($this->aggregators as $aggregator) {
-			// TODO: we might aggregate aggregators by statsColumn (in order to compute the array of values only once if there are many aggregators for one column descriptor)
-			/* @var $aggregator AggregatorDescriptorInterface */
-			$aggregatorStatsColumnDescriptor = $aggregator->getStatsColumnDescriptor();
-			$aggregatorFound = false;
-			// If the aggregator is part of a row....
-			foreach ($this->rows as $rowDescriptor) {
-				/* @var $rowDescriptor StatsColumnDescriptorInterface */
-				if ($rowDescriptor == $aggregatorStatsColumnDescriptor) {
-					$aggregatorFound = true;
-					
-					// Let's get all the statsColumns object who represent a $aggregatorStatsColumnDescriptor
-					 $rowStatsColumns = $statsRows->getStatsColumnByAggregatedDescriptor($rowDescriptor);
-					 foreach ($rowStatsColumns as $rowStatsColumn) {
-					 	/* @var $rowStatsColumn StatsColumn */
+        $statsRows = new StatsColumn();
+        $statsRows->fill($this->data, $this->rows);
 
-					 	$rowFilters = $rowStatsColumn->getFilters();
-					 	
-					 	// Before the "foreach", let's start with the top column
-					 	$filters = $statsColumns->getFilters();
-					 	$filters->addAll($rowFilters);
-					 	$filteredData = $this->filterData($this->data, $filters);
-					 	$aggregatedValue = new AggregatedValue();
-					 	$aggregatedValue->statsColumn = $statsColumns;
-					 	$aggregatedValue->statsRow = $rowStatsColumn;
-					 	$aggregatedValue->aggregateOn = "row";
-					 	$aggregatedValue->setValues($filteredData);
-					 	$aggregatedData->put($statsColumns, $rowStatsColumn, $aggregatedValue);
-					 	
-					 	
-					 	// For this row, for each column in the tree, let's compute the sum
-					 	foreach (new RecursiveIteratorIterator($statsColumns, RecursiveIteratorIterator::SELF_FIRST) as $statsColumn) {
-					 		/* @var $statsColumn StatsColumn */
-					 		$filters = $statsColumn->getFilters();
+        $statsColumns = new StatsColumn();
+        $statsColumns->fill($this->data, $this->columns);
 
-					 		// Let's concatenate row and column filters
-					 		$filters->addAll($rowFilters);
-					 		
-					 		// Let's now apply those filters to the data
-					 		$filteredData = $this->filterData($this->data, $filters);
-					 		$aggregatedValue = new AggregatedValue();
-					 		$aggregatedValue->statsColumn = $statsColumn;
-					 		$aggregatedValue->statsRow = $rowStatsColumn;
-					 		$aggregatedValue->aggregateOn = "row";
-					 		$aggregatedValue->setValues($filteredData);
-					 		
-					 		$aggregatedData->put($statsColumn, $rowStatsColumn, $aggregatedValue);
-					 	}
-					 }					
-				}
-			}
-			
-			// If the aggregator is part of a column....
-			foreach ($this->columns as $columnDescriptor) {
-				/* @var $columnDescriptor StatsColumnDescriptorInterface */
-				if ($columnDescriptor == $aggregatorStatsColumnDescriptor) {
-					$aggregatorFound = true;
-						
-					// Let's get all the statsColumns object who represent a $aggregatorStatsColumnDescriptor
-					$columnStatsColumns = $statsColumns->getStatsColumnByAggregatedDescriptor($columnDescriptor);
-					foreach ($columnStatsColumns as $columnStatsColumn) {
-						/* @var $columnStatsColumn StatsColumn */
-			
-						$columnFilters = $columnStatsColumn->getFilters();
-			
-						// Before the "foreach", let's start with the top column
-						$filters = $statsRows->getFilters();
-						$filters->addAll($columnFilters);
-						$filteredData = $this->filterData($this->data, $filters);
-						$aggregatedValue = new AggregatedValue();
-						$aggregatedValue->statsColumn = $columnStatsColumn;
-						$aggregatedValue->statsRow = $statsRows;
-						$aggregatedValue->aggregateOn = "column";
-						$aggregatedValue->setValues($filteredData);
-						$aggregatedData->put($columnStatsColumn, $statsRows, $aggregatedValue);
-						
-						// For this column, for each row in the tree, let's compute the sum
-						foreach (new RecursiveIteratorIterator($statsRows, RecursiveIteratorIterator::SELF_FIRST) as $statsRow) {
-							/* @var $statsColumn StatsColumn */
-							$filters = $statsRow->getFilters();
-			
-							// Let's concatenate row and column filters
-							$filters->addAll($columnFilters);
-			
-							// Let's now apply those filters to the data
-							$filteredData = $this->filterData($this->data, $filters);
-							$aggregatedValue = new AggregatedValue();
-							$aggregatedValue->statsColumn = $columnStatsColumn;
-							$aggregatedValue->statsRow = $statsRow;
-							$aggregatedValue->aggregateOn = "column";
-							$aggregatedValue->setValues($filteredData);
-			
-							$aggregatedData->put($columnStatsColumn, $statsRow, $aggregatedValue);
-						}
-					}
-				}
-			}
-				
-			if (!$aggregatorFound) {
-				throw new Exception("Error while rendering grid. You tried to aggregate data on a column that is not part of the columns declared in the grid.");
-			}
-		}
-		
-		
-		
-		// A 2 dimensionnal array representing the table (first is y, second is x)
-		// Each element is a table with 3 elements: array("value"=>XXX, "colspan"=>YYY, "rowspan"=>ZZZ)
-		$table = array();
-		
-		$maxX = 0;
-		$maxY = 0;
-		
-		$startX = count($this->rows);
-		$startY = count($this->columns);
-		if (count($this->values)>1) {
-			if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
-				$startY++;
-			} else {
-				$startX++;
-			}
-		}
-		
-		$this->putColumnHeaderHtml($statsColumns, $table, $startX, 0, $maxX, $maxY);
-		$this->putRowsHeaderHtml($statsRows, $table, 0, $startY, $maxX, $maxY);
-		
-		if (empty($this->rows) && (empty($this->values) || $this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL)) {
-			$maxY++;
-		}
-		if (empty($this->columns) && (empty($this->values) || $this->valuesDisplayMode == self::VALUES_DISPLAY_VERTICAL)) {
-			$maxX++;
-		}
-		
-		foreach ($this->data as $dataRow) {
-			/* @var $value StatsValueDescriptor */
-			$xCoord = $this->findCoord($statsColumns, $dataRow);
-			$yCoord = $this->findCoord($statsRows, $dataRow);
-			$i = 0;
-			$j = 0;
-			foreach ($this->values as $value) {
-				$table[$yCoord+$j][$xCoord+$i]['value'] = $value->getValue($dataRow);
-				if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
-					$i++;
-				} else {
-					$j++;
-				}
-			}
-		}
-		
-		// Now, let's cycle through the aggregated data
-		$aggregatedColumns = $aggregatedData->getColumns();
-		foreach ($aggregatedColumns as $xStatsColumn) {
-			/* @var $xStatsColumn StatsColumn */
-			$aggregatedRows = $aggregatedColumns[$xStatsColumn];
-			foreach ($aggregatedRows as $yStatsColumn) {
-				/* @var $yStatsColumn StatsColumn */
-				$aggregatedValue = $aggregatedRows[$yStatsColumn];
-				/* @var $aggregatedValue AggregatedValue */
-				
-				if (!empty($xStatsColumn->subcolumns)) {
-					$xCoord = $xStatsColumn->xAggregateCoord;
-				} else {
-					$xCoord = $xStatsColumn->xCoord;
-				}
-				if (!empty($yStatsColumn->subcolumns)) {
-					$yCoord = $yStatsColumn->yAggregateCoord;
-				} else {
-					$yCoord = $yStatsColumn->yCoord;
-				}
-				
-				if ($aggregatedValue->aggregateOn == "row") {
-					// Let's find the aggregator back...
-					$aggregators = $this->getAggregatorsForDescriptor($yStatsColumn->subcolumns[0]->columnDescriptor);
-					$currentColumn = $yStatsColumn;
-					
-				} else {
-					// Let's find the aggregator back...
-					$aggregators = $this->getAggregatorsForDescriptor($xStatsColumn->subcolumns[0]->columnDescriptor);
-					$currentColumn = $xStatsColumn;
-				}
-				
-				// Let's find the "level" of the aggregator...( sum? subsum? subsubsum?...)
-				$level = 0;
-				while ($currentColumn->parent != null) {
-					$currentColumn = $currentColumn->parent;
-					$level++;
-				}
-				
-				$i = 0;
-				$j = 0;
-				foreach ($aggregators as $aggregator) {
-					// FIXME: positionning is bogus
-					$table[$yCoord+$j][$xCoord+$i]['value'] = $aggregator->getAggregatedValue($aggregatedValue->getValues());
-					$table[$yCoord+$j][$xCoord+$i]['class'] = "aggregate".$level;
-					if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
-						$i++;
-					} else {
-						$j++;
-					}
-				}
-			}
-		}
-		
-		
-		/*var_dump($table);
-		var_dump($maxX);
-		var_dump($maxY);*/
-		
-		// Finally, let's do a bit of CSS styling on values
-		for ($j=$startY; $j<$maxY; $j++) {
-			for ($i=$startX; $i<$maxX; $i++) {
-				if (isset($table[$j][$i]["class"])) {
-					$table[$j][$i]["class"] .= " value";
-				} else {
-					$table[$j][$i]["class"] = "value";
-				}
-				$table[$j][$i]["class"] .= ($i%2)?" rowodd":" roweven";
-				$table[$j][$i]["class"] .= ($j%2)?" columnodd":" columneven";
-			}
-		} 
-		
+        /*var_dump($statsRows);
+        var_dump($statsColumns);*/
+
+        // Xrow: StatsColumn, Yrow: StatsColumn, Value: AggregatedValue
+        $aggregatedData = new BiDimensionalObjectStorage();
+        // We must create an instance of AggregatedValue for each row/column needed
+        // Then we must fill this with data from the dataset.
+        foreach ($this->aggregators as $aggregator) {
+            // TODO: we might aggregate aggregators by statsColumn (in order to compute the array of values only once if there are many aggregators for one column descriptor)
+            /* @var $aggregator AggregatorDescriptorInterface */
+            $aggregatorStatsColumnDescriptor = $aggregator->getStatsColumnDescriptor();
+            $aggregatorFound = false;
+            // If the aggregator is part of a row....
+            foreach ($this->rows as $rowDescriptor) {
+                /* @var $rowDescriptor StatsColumnDescriptorInterface */
+                if ($rowDescriptor == $aggregatorStatsColumnDescriptor) {
+                    $aggregatorFound = true;
+
+                    // Let's get all the statsColumns object who represent a $aggregatorStatsColumnDescriptor
+                    $rowStatsColumns = $statsRows->getStatsColumnByAggregatedDescriptor($rowDescriptor);
+                    foreach ($rowStatsColumns as $rowStatsColumn) {
+                        /* @var $rowStatsColumn StatsColumn */
+
+                        $rowFilters = $rowStatsColumn->getFilters();
+
+                        // Before the "foreach", let's start with the top column
+                        $filters = $statsColumns->getFilters();
+                        $filters->addAll($rowFilters);
+                        $filteredData = $this->filterData($this->data, $filters);
+                        $aggregatedValue = new AggregatedValue();
+                        $aggregatedValue->statsColumn = $statsColumns;
+                        $aggregatedValue->statsRow = $rowStatsColumn;
+                        $aggregatedValue->aggregateOn = "row";
+                        $aggregatedValue->setValues($filteredData);
+                        $aggregatedData->put($statsColumns, $rowStatsColumn, $aggregatedValue);
+
+
+                        // For this row, for each column in the tree, let's compute the sum
+                        foreach (new RecursiveIteratorIterator($statsColumns, RecursiveIteratorIterator::SELF_FIRST) as $statsColumn) {
+                            /* @var $statsColumn StatsColumn */
+                            $filters = $statsColumn->getFilters();
+
+                            // Let's concatenate row and column filters
+                            $filters->addAll($rowFilters);
+
+                            // Let's now apply those filters to the data
+                            $filteredData = $this->filterData($this->data, $filters);
+                            $aggregatedValue = new AggregatedValue();
+                            $aggregatedValue->statsColumn = $statsColumn;
+                            $aggregatedValue->statsRow = $rowStatsColumn;
+                            $aggregatedValue->aggregateOn = "row";
+                            $aggregatedValue->setValues($filteredData);
+
+                            $aggregatedData->put($statsColumn, $rowStatsColumn, $aggregatedValue);
+                        }
+                    }
+                }
+            }
+
+            // If the aggregator is part of a column....
+            foreach ($this->columns as $columnDescriptor) {
+                /* @var $columnDescriptor StatsColumnDescriptorInterface */
+                if ($columnDescriptor == $aggregatorStatsColumnDescriptor) {
+                    $aggregatorFound = true;
+
+                    // Let's get all the statsColumns object who represent a $aggregatorStatsColumnDescriptor
+                    $columnStatsColumns = $statsColumns->getStatsColumnByAggregatedDescriptor($columnDescriptor);
+                    foreach ($columnStatsColumns as $columnStatsColumn) {
+                        /* @var $columnStatsColumn StatsColumn */
+
+                        $columnFilters = $columnStatsColumn->getFilters();
+
+                        // Before the "foreach", let's start with the top column
+                        $filters = $statsRows->getFilters();
+                        $filters->addAll($columnFilters);
+                        $filteredData = $this->filterData($this->data, $filters);
+                        $aggregatedValue = new AggregatedValue();
+                        $aggregatedValue->statsColumn = $columnStatsColumn;
+                        $aggregatedValue->statsRow = $statsRows;
+                        $aggregatedValue->aggregateOn = "column";
+                        $aggregatedValue->setValues($filteredData);
+                        $aggregatedData->put($columnStatsColumn, $statsRows, $aggregatedValue);
+
+                        // For this column, for each row in the tree, let's compute the sum
+                        foreach (new RecursiveIteratorIterator($statsRows, RecursiveIteratorIterator::SELF_FIRST) as $statsRow) {
+                            /* @var $statsColumn StatsColumn */
+                            $filters = $statsRow->getFilters();
+
+                            // Let's concatenate row and column filters
+                            $filters->addAll($columnFilters);
+
+                            // Let's now apply those filters to the data
+                            $filteredData = $this->filterData($this->data, $filters);
+                            $aggregatedValue = new AggregatedValue();
+                            $aggregatedValue->statsColumn = $columnStatsColumn;
+                            $aggregatedValue->statsRow = $statsRow;
+                            $aggregatedValue->aggregateOn = "column";
+                            $aggregatedValue->setValues($filteredData);
+
+                            $aggregatedData->put($columnStatsColumn, $statsRow, $aggregatedValue);
+                        }
+                    }
+                }
+            }
+
+            if (!$aggregatorFound) {
+                throw new Exception("Error while rendering grid. You tried to aggregate data on a column that is not part of the columns declared in the grid.");
+            }
+        }
+
+
+        // A 2 dimensionnal array representing the table (first is y, second is x)
+        // Each element is a table with 3 elements: array("value"=>XXX, "colspan"=>YYY, "rowspan"=>ZZZ)
+        $table = array();
+
+        $maxX = 0;
+        $maxY = 0;
+
+        $startX = count($this->rows);
+        $startY = count($this->columns);
+        if (count($this->values) > 1) {
+            if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
+                $startY++;
+            } else {
+                $startX++;
+            }
+        }
+
+        $this->putColumnHeaderHtml($statsColumns, $table, $startX, 0, $maxX, $maxY);
+        $this->putRowsHeaderHtml($statsRows, $table, 0, $startY, $maxX, $maxY);
+
+        if (empty($this->rows) && (empty($this->values) || $this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL)) {
+            $maxY++;
+        }
+        if (empty($this->columns) && (empty($this->values) || $this->valuesDisplayMode == self::VALUES_DISPLAY_VERTICAL)) {
+            $maxX++;
+        }
+
+        foreach ($this->data as $dataRow) {
+            /* @var $value StatsValueDescriptor */
+            $xCoord = $this->findCoord($statsColumns, $dataRow);
+            $yCoord = $this->findCoord($statsRows, $dataRow);
+            $i = 0;
+            $j = 0;
+            foreach ($this->values as $value) {
+                $table[$yCoord + $j][$xCoord + $i]['value'] = $value->getValue($dataRow);
+                if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
+                    $i++;
+                } else {
+                    $j++;
+                }
+            }
+        }
+
+        // Now, let's cycle through the aggregated data
+        $aggregatedColumns = $aggregatedData->getColumns();
+        foreach ($aggregatedColumns as $xStatsColumn) {
+            /* @var $xStatsColumn StatsColumn */
+            $aggregatedRows = $aggregatedColumns[$xStatsColumn];
+            foreach ($aggregatedRows as $yStatsColumn) {
+                /* @var $yStatsColumn StatsColumn */
+                $aggregatedValue = $aggregatedRows[$yStatsColumn];
+                /* @var $aggregatedValue AggregatedValue */
+
+                if (!empty($xStatsColumn->subcolumns)) {
+                    $xCoord = $xStatsColumn->xAggregateCoord;
+                } else {
+                    $xCoord = $xStatsColumn->xCoord;
+                }
+                if (!empty($yStatsColumn->subcolumns)) {
+                    $yCoord = $yStatsColumn->yAggregateCoord;
+                } else {
+                    $yCoord = $yStatsColumn->yCoord;
+                }
+
+                if ($aggregatedValue->aggregateOn == "row") {
+                    // Let's find the aggregator back...
+                    $aggregators = $this->getAggregatorsForDescriptor($yStatsColumn->subcolumns[0]->columnDescriptor);
+                    $currentColumn = $yStatsColumn;
+
+                } else {
+                    // Let's find the aggregator back...
+                    $aggregators = $this->getAggregatorsForDescriptor($xStatsColumn->subcolumns[0]->columnDescriptor);
+                    $currentColumn = $xStatsColumn;
+                }
+
+                // Let's find the "level" of the aggregator...( sum? subsum? subsubsum?...)
+                $level = 0;
+                while ($currentColumn->parent != null) {
+                    $currentColumn = $currentColumn->parent;
+                    $level++;
+                }
+
+                $i = 0;
+                $j = 0;
+                foreach ($aggregators as $aggregator) {
+                    // FIXME: positionning is bogus
+                    $table[$yCoord + $j][$xCoord + $i]['value'] = $aggregator->getAggregatedValue($aggregatedValue->getValues());
+                    $table[$yCoord + $j][$xCoord + $i]['class'] = "aggregate" . $level;
+                    if ($this->valuesDisplayMode == self::VALUES_DISPLAY_HORIZONTAL) {
+                        $i++;
+                    } else {
+                        $j++;
+                    }
+                }
+            }
+        }
+
+
+        /*var_dump($table);
+        var_dump($maxX);
+        var_dump($maxY);*/
+
+        // Finally, let's do a bit of CSS styling on values
+        for ($j = $startY; $j < $maxY; $j++) {
+            for ($i = $startX; $i < $maxX; $i++) {
+                if (isset($table[$j][$i]["class"])) {
+                    $table[$j][$i]["class"] .= " value";
+                } else {
+                    $table[$j][$i]["class"] = "value";
+                }
+                $table[$j][$i]["class"] .= ($i % 2) ? " rowodd" : " roweven";
+                $table[$j][$i]["class"] .= ($j % 2) ? " columnodd" : " columneven";
+            }
+        }
+        return [$table, $maxX, $maxY];
+    }
+
+    public function toHtml()
+    {
+        list($table, $maxX, $maxY) = $this->processData();
+
 		$this->printTable($table, $maxX, $maxY);
 	}
+
+
+	public function toArray()
+    {
+        list($table, $maxX, $maxY) = $this->processData();
+
+        $simpleArray = [];
+        $rowSpanFill = [];
+        foreach ($table as $r => $row){
+            $simpleArrayRow = [];
+            foreach($row as $c => $field){
+                if (isset($rowSpanFill[$c]) && $rowSpanFill[$c]){
+                    $simpleArrayRow[$c] = '';
+                    $rowSpanFill[$c]--;
+                }else {
+                    if (isset($field['value'])) {
+                        $simpleArrayRow[$c] = $field['value'];
+                        if (isset($field['rowspan']) && $field['rowspan'] > 1) {
+                            //$rowSpanFill[$c] = $field['rowspan'];
+                        }
+                    }else{
+                        $simpleArrayRow[$c] = '';
+                    }
+                }
+            }
+            $simpleArray[] = $simpleArrayRow;
+        }
+        return $simpleArray;
+
+    }
+
+
+
 
 	
 	/**
